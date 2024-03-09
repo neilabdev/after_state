@@ -1,7 +1,7 @@
 require 'rails/railtie'
 require 'rails'
 
-module Microcosm
+module AfterState
   class Railtie < Rails::Railtie
     railtie_name :after_state
 
