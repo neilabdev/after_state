@@ -11,8 +11,10 @@ module AfterState
     extend ActiveSupport::Concern
 
     included do
-      after_commit :manage_state, on: [:create, :update, :destroy]
-      class_attribute :after_state_settings
+      after_commit :manage_commit_state, on: [:create, :update, :destroy]
+      after_save :manage_save_state
+      class_attribute :after_state_commit_settings
+      class_attribute :after_state_save_settings
     end
 
     class_methods do
@@ -24,23 +26,31 @@ module AfterState
       # @param [Symbol|String] group  optional: Ensures callbacks with the same group only execute once.
       # @param [Proc||Symbol|String] if  optional: Executes callback only if condition is true.
       # @param [Proc] block optional: Block to execute if conditions match
-      def after_state(field = nil, on: :status, key: nil, value: nil, type: nil, group: nil, if: nil, &block)
+      def after_state(field = nil, event: :commit, on: :status, key: nil, value: nil, type: nil, group: nil, if: nil, &block)
         code = field || block
         raise ArgumentError, "A block or option :field must be specified" unless code.present?
+        raise ArgumentError, ":event must be either :commit or :save" unless [:commit,:save].include?(event)
 
-        self.after_state_settings ||= {}.with_indifferent_access
+        self.after_state_commit_settings ||= {}.with_indifferent_access
+        self.after_state_save_settings ||= {}.with_indifferent_access
+
+        current_settings = event == :commit ? self.after_state_commit_settings : self.after_state_save_settings
 
         Array(on).each do |on_attribute|
-          self.after_state_settings[on_attribute] ||= []
-          self.after_state_settings[on_attribute].push(OpenStruct.new(code:, group:, if:, types: Array.wrap(type), key:, values: Array.wrap(value)))
+          current_settings[on_attribute] ||= []
+          current_settings[on_attribute].push(OpenStruct.new(code:, group:, if:, types: Array.wrap(type), key:, values: Array.wrap(value)))
         end
       end
+
+      def after_save_state(field = nil, **opts) = after_state(field, **opts.merge(event: :save))
+      def after_commit_state(field = nil, **opts) = after_state(field, **opts.merge(event: :commit))
+
     end
 
-    def perform_state_changes(*changed_fields)
+    def perform_state_changes(*changed_fields, state_settings:, event:)
       field_names = changed_fields.flatten.collect { |name| name.to_s }
       groups = {}
-      self.class.after_state_settings&.each_pair do |field_name, field_settings|
+      state_settings&.each_pair do |field_name, field_settings|
         next unless changed_fields.blank? || field_names.include?(field_name)
 
         field_settings.each do |setting|
@@ -96,13 +106,17 @@ module AfterState
       [initial_value, updated_value, initial_value != updated_value]
     end
 
-    def manage_state
-      unless previous_changes.keys.find { |k| self.class.after_state_settings&.keys&.include?(k) }
+    def manage_commit_state = manage_state(self.class.after_state_commit_settings, event: :commit)
+
+    def manage_save_state = manage_state(self.class.after_state_save_settings, event: :save)
+
+    def manage_state(state_settings, event:)
+      unless previous_changes.keys.find { |k| state_settings&.keys&.include?(k) }
         return # return if state attribute not changed
       end
 
       ActiveRecord::Base.transaction do
-        perform_state_changes(*previous_changes.keys)
+        perform_state_changes(*previous_changes.keys, state_settings: state_settings, event:)
       end
     rescue Exception => e
       Rails.logger.warn("Unable to perform state change for class: #{self.class.name} id: #{self.id} because: #{e.messages}")
