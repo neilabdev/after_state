@@ -11,8 +11,9 @@ module AfterState
     extend ActiveSupport::Concern
 
     included do
-      after_commit :manage_commit_state, on: [:create, :update, :destroy]
       after_save :manage_save_state
+      after_commit :manage_commit_state, on: [:create, :update, :destroy]
+
       class_attribute :after_state_commit_settings
       class_attribute :after_state_save_settings
     end
@@ -44,9 +45,52 @@ module AfterState
 
       def after_save_state(field = nil, **opts) = after_state(field, **opts.merge(event: :save))
       def after_commit_state(field = nil, **opts) = after_state(field, **opts.merge(event: :commit))
-
     end
 
+    # A cached version of :saved_changes which persist throughout all after_state callbacks in the chain
+    def after_state_changes(clear: false)
+      @after_state_changes = nil if clear
+      @after_state_changes ||= saved_changes
+    end
+
+    private
+
+    def store_accessor_value_changed?(...) = changed_store_accessor_value(...).last
+
+    # Return the updated value from a store_accessor hash.
+    def changed_store_accessor_value(field:, key:)
+      initial_store = after_state_changes[field]&.first
+      updated_store = after_state_changes[field]&.last
+      initial_value = initial_store&.try(:dig, key)
+      updated_value = updated_store&.try(:dig, key)
+
+      [initial_value, updated_value, initial_value != updated_value]
+    end
+
+    def manage_commit_state = manage_state(self.class.after_state_commit_settings, event: :commit)
+
+    def manage_save_state
+      # Clear changes from any previous save
+      after_state_changes(clear: true)
+
+      manage_state(self.class.after_state_save_settings, event: :save)
+    end
+
+    def manage_state(state_settings, event:)
+      unless after_state_changes.keys.find { |k| state_settings&.keys&.include?(k) }
+        return # return if state attribute not changed
+      end
+
+      ActiveRecord::Base.transaction do
+        perform_state_changes(*after_state_changes.keys, state_settings: state_settings, event:)
+      end
+    rescue Exception => e
+      Rails.logger.warn("Unable to perform state change for class: #{self.class.name} id: #{self.id} because: #{e.messages}")
+
+      raise e
+    end
+
+    # Handles processing each :after_state callback
     def perform_state_changes(*changed_fields, state_settings:, event:)
       field_names = changed_fields.flatten.collect { |name| name.to_s }
       groups = {}
@@ -57,16 +101,16 @@ module AfterState
           last_change = if setting.key.present?
                           changed_store_accessor_value(field: field_name, key: setting.key)[1]
                         else
-                          previous_changes[field_name]&.last
+                          after_state_changes[field_name]&.last
                         end
 
           next if setting.key.present? && !store_accessor_value_changed?(field: field_name, key: setting.key) #
 
           next if setting.values.present? && # Next only IF expecting to match value AND
-            !setting.values.include?(last_change) # the value doesn't match.
+                  !setting.values.include?(last_change) # the value doesn't match.
 
           next if setting.types.present? && # Next only IF expecting to be a subclass of types, but isn't
-            (setting.types.select { |t| last_change.is_a?(t.is_a?(Class) ? t : t.class) }).blank?
+                  (setting.types.select { |t| last_change.is_a?(t.is_a?(Class) ? t : t.class) }).blank?
 
           if setting.group.present?
             # This insures that different callbacks that share the same group only execute once.
@@ -90,38 +134,6 @@ module AfterState
       end
 
       nil
-    end
-
-    private
-
-    def store_accessor_value_changed?(...) = changed_store_accessor_value(...).last
-
-    # Return the updated value from a store_accessor hash.
-    def changed_store_accessor_value(field:, key:)
-      initial_store = previous_changes[field]&.first
-      updated_store = previous_changes[field]&.last
-      initial_value = initial_store&.try(:dig, key)
-      updated_value = updated_store&.try(:dig, key)
-
-      [initial_value, updated_value, initial_value != updated_value]
-    end
-
-    def manage_commit_state = manage_state(self.class.after_state_commit_settings, event: :commit)
-
-    def manage_save_state = manage_state(self.class.after_state_save_settings, event: :save)
-
-    def manage_state(state_settings, event:)
-      unless previous_changes.keys.find { |k| state_settings&.keys&.include?(k) }
-        return # return if state attribute not changed
-      end
-
-      ActiveRecord::Base.transaction do
-        perform_state_changes(*previous_changes.keys, state_settings: state_settings, event:)
-      end
-    rescue Exception => e
-      Rails.logger.warn("Unable to perform state change for class: #{self.class.name} id: #{self.id} because: #{e.messages}")
-
-      raise e
     end
   end
 end
