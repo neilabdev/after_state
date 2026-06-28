@@ -35,6 +35,9 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'actionpack', '>= 6.1'
   spec.add_dependency 'activemodel', '>= 6.1'
   spec.add_dependency "railties", ">= 6.1"
+  spec.add_dependency "activerecord", ">= 6.1"
+  spec.add_development_dependency "sqlite3"
+  spec.add_development_dependency 'combustion', '~> 1.3'
 
   # For more information and examples about making a new gem, check out our
   # guide at: https://bundler.io/guides/creating_gem.html

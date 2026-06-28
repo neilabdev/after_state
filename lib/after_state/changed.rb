@@ -55,6 +55,11 @@ module AfterState
       @after_state_changes ||= saved_changes
     end
 
+    # Returns the value that field changed to
+    def after_state_changed(field)
+      after_state_changes[field]&.last
+    end
+
     private
 
     def store_accessor_value_changed?(...) = changed_store_accessor_value(...).last
@@ -87,7 +92,7 @@ module AfterState
         perform_state_changes(*after_state_changes.keys, state_settings: state_settings, event:)
       end
     rescue Exception => e
-      Rails.logger.warn("Unable to perform state change for class: #{self.class.name} id: #{self.id} because: #{e.messages}")
+      Rails.logger.warn("Unable to perform state change for class: #{self.class.name} id: #{self.id} because: #{e.message}")
 
       raise e
     end
@@ -130,7 +135,7 @@ module AfterState
           if setting.code.is_a?(Proc)
             setting.code.call
           else
-            self.send(setting.code)
+            self.__send__(setting.code)
           end
         end
       end

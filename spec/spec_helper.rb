@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
+require 'bundler'
 
-require 'logger'
-require "active_model"
-require "after_state"
+Bundler.require :default, :development
+
+# If you're using all parts of Rails:
+Combustion.initialize! :active_record
 
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure

@@ -2,79 +2,52 @@
 require "spec_helper"
 
 # 1. Simulate the gem module's functionality
-module Post
-  extend ActiveSupport::Concern
+class Post < ActiveRecord::Base
+  include AfterState::Changed
 
-  included do
-    include AfterState::Changed
+  validates :content, presence: true
+  validates :status, presence: true
 
-    validates :text, presence: true
-    validates :status, presence: true
+  after_save_state :publish_content, on: :status, value: %w[published]
+  after_save_state :cancel_content, on: :status, value: %w[canceled]
 
-    after_save_state :publish_content, on: :status, value: %w[published]
-    after_save_state :cancel_content, on: :status, value: %w[canceled]
+  def publish_content
+    puts "published"
   end
 
-  class_methods do
-    # Define the model_name to avoid the ArgumentError
-    def  model_name
-      ActiveModel::Name.new(self, nil, "DynamicModel")
-    end
+  def cancel_content
+    puts "cancelled"
   end
 end
 
 RSpec.describe AfterState do
-  let(:example_model_class) do
-    Class.new do
-      include ActiveModel::Model
-      include ActiveModel::Validations
-      # include ActiveModel::Callbacks
-      extend ActiveModel::Callbacks
-
-
-      # Define the save callbacks
-      define_model_callbacks :save, :create, :update, :destroy
-
-      def save
-        # Run the before_save and after_save blocks around your logic
-        run_callbacks :save do
-          # Your persistence/save logic goes here
-          puts "Executing save logic..."
-          true # return true to complete
-        end
-      end
-
-      include Post
-
-      # after_commit_state :notify_cashout_processing, on: :status, value: "processing"
-
-      attr_accessor :status
-      attr_accessor :text
-
-      def publish_content
-        puts "published"
-      end
-
-      def initialize(attributes = {})
-        attributes.each do |name, value|
-          send("#{name}=", value)
-        end
-      end
-    end
-  end
-
-  subject { example_model_class.new }
+  subject { Post.new }
 
   describe "after_save_state" do
     it "executes publish_content callback" do
       expect(subject).to receive(:publish_content).and_call_original
+      expect(subject).to_not receive(:cancel_content)
 
-      subject.text = "hello"
+      subject.content = "hello"
       subject.status = "published"
 
       subject.save!
-      #expect(subject).not_to be_valid
-      ##expect(subject.errors[:text]).to include("can't be blank")
+
+      expect(subject.after_state_changes).to be_present
+    end
+
+    it "executes published & cancel_content on transition" do
+      expect(subject).to receive(:publish_content).and_call_original
+
+      subject.update!(content: "hello", status: "published")
+
+      expect(subject.after_state_changed(:status)).to eq "published"
+
+      expect(subject).to receive(:cancel_content).and_call_original
+
+      subject.update!(status: "canceled")
+
+      expect(subject.after_state_changed(:status)).to eq "canceled"
     end
   end
 end
