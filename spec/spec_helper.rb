@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+
+require 'logger'
+require "active_model"
 require "after_state"
 
 RSpec.configure do |config|

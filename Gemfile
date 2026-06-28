@@ -10,3 +10,9 @@ gem "rake", "~> 13.0"
 gem "rspec", "~> 3.0"
 
 gem "standard", "~> 1.3"
+
+group :development, :test do
+  gem 'rspec-rails'
+  gem 'logger'
+  gem 'ostruct'
+end
