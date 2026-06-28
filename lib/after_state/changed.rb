@@ -48,6 +48,8 @@ module AfterState
     end
 
     # A cached version of :saved_changes which persist throughout all after_state callbacks in the chain
+    #
+    # @see https://github.com/rails/rails/issues/43645
     def after_state_changes(clear: false)
       @after_state_changes = nil if clear
       @after_state_changes ||= saved_changes
